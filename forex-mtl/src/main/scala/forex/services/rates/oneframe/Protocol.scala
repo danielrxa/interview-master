@@ -1,7 +1,7 @@
 package forex.services.rates.oneframe
 
-import java.time.{ LocalDateTime, ZoneOffset }
-import scala.util.control.NonFatal
+import java.time.{ LocalDateTime, OffsetDateTime, ZoneOffset }
+import scala.util.Try
 import forex.domain.{ Currency, Price, Rate, Timestamp }
 import io.circe.Decoder
 
@@ -24,10 +24,12 @@ object Protocol {
 
   implicit val timestampDecoder: Decoder[Timestamp] =
     Decoder.decodeString.emap { value =>
-      try Right(Timestamp(LocalDateTime.parse(value).atOffset(ZoneOffset.UTC)))
-      catch {
-        case NonFatal(error) => Left(error.getMessage)
-      }
+      Try(OffsetDateTime.parse(value))
+        .orElse(Try(LocalDateTime.parse(value).atOffset(ZoneOffset.UTC)))
+        .toEither
+        .left
+        .map(_.getMessage)
+        .map(Timestamp(_))
     }
 
   implicit val oneFrameResponseDecoder: Decoder[OneFrameResponse] =

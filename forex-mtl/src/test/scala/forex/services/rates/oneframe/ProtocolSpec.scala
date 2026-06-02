@@ -19,6 +19,15 @@ final class ProtocolSpec extends AnyFunSuite {
     assert(response.asRate.timestamp.value.toString == "2019-01-01T00:00Z")
   }
 
+  test("decodes the UTC timestamp format returned by the One-Frame container") {
+    val json =
+      """{"from":"USD","to":"JPY","bid":0.61,"ask":0.82,"price":0.71,"time_stamp":"2026-06-02T01:24:13.959Z"}"""
+
+    val response = decode[OneFrameResponse](json).toOption.get
+
+    assert(response.asRate.timestamp.value.toString == "2026-06-02T01:24:13.959Z")
+  }
+
   test("rejects unsupported currencies") {
     val json = """{"from":"XXX","to":"JPY","price":0.71,"time_stamp":"2019-01-01T00:00:00.000"}"""
 
