@@ -12,6 +12,27 @@ final class OneFrameLiveSpec extends AnyFunSuite {
 
   private val pair = Rate.Pair(Currency.USD, Currency.JPY)
 
+  test("requests one pair using the One-Frame API format") {
+    val result = for {
+      captured <- Ref.of[IO, Option[Request[IO]]](None)
+      app = HttpApp[IO](request =>
+        captured
+          .set(Some(request))
+          .as(Response[IO](Status.Ok).withEntity(
+            """[{"from":"USD","to":"JPY","price":0.71,"time_stamp":"2019-01-01T00:00:00.000"}]"""
+          ))
+      )
+      live = new OneFrameLive[IO](Client.fromHttpApp(app), Uri.unsafeFromString("http://localhost:8080"), "secret")
+      _       <- live.get(List(pair))
+      request <- captured.get.map(_.get)
+    } yield request
+
+    val request = result.unsafeRunSync()
+
+    assert(request.method == org.http4s.Method.GET)
+    assert(request.uri.renderString == "http://localhost:8080/rates?pair=USDJPY")
+  }
+
   test("requests multiple pairs with the token and maps the response") {
     val requestedPairs = List(pair, Rate.Pair(Currency.EUR, Currency.CHF))
     val result = for {
