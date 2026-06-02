@@ -4,6 +4,7 @@ import scala.concurrent.ExecutionContext
 import cats.effect._
 import cats.syntax.either._
 import forex.config._
+import forex.services.rates.RatesRefresher
 import forex.services.rates.interpreters.{ CachedRates, OneFrameLive }
 import fs2.Stream
 import org.http4s.Uri
@@ -27,9 +28,10 @@ class Application[F[_]: ConcurrentEffect: Timer] {
               val oneFrame = new OneFrameLive[F](client, baseUri, config.oneFrame.token)
               Stream.eval(CachedRates.create[F](oneFrame, config.oneFrame.maxRateAge)).flatMap { ratesService =>
                 val module = new Module[F](config, ratesService)
-                val refresh =
-                  (Stream.eval(ratesService.refresh) ++
-                    Stream.awakeEvery[F](config.oneFrame.refreshInterval).evalMap(_ => ratesService.refresh)).drain
+                val refresh = new RatesRefresher[F](
+                  ratesService.refresh,
+                  config.oneFrame.refreshInterval
+                ).stream
 
                 BlazeServerBuilder[F](ec)
                   .bindHttp(config.http.port, config.http.host)
