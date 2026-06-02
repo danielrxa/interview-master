@@ -30,6 +30,7 @@ final class RatesHttpRoutesSpec extends AnyFunSuite {
     val response = run(Right(rate), "/rates?from=XXX&to=JPY")
 
     assert(response._1 == Status.BadRequest)
+    assert(response._2.hcursor.get[String]("code") == Right("INVALID_REQUEST"))
     assert(response._2.hcursor.get[String]("message") == Right("Unsupported currency: XXX"))
   }
 
@@ -37,28 +38,40 @@ final class RatesHttpRoutesSpec extends AnyFunSuite {
     val response = run(Right(rate), "/rates?from=USD")
 
     assert(response._1 == Status.BadRequest)
+    assert(response._2.hcursor.get[String]("code") == Right("INVALID_REQUEST"))
     assert(response._2.hcursor.get[String]("message") == Right("Missing query parameter: to"))
+  }
+
+  test("returns bad request for a repeated query parameter") {
+    val response = run(Right(rate), "/rates?from=USD&from=EUR&to=JPY")
+
+    assert(response._1 == Status.BadRequest)
+    assert(response._2.hcursor.get[String]("code") == Right("INVALID_REQUEST"))
+    assert(response._2.hcursor.get[String]("message") == Right("Query parameter must be provided once: from"))
   }
 
   test("returns bad request for an unsupported pair") {
     val response = run(Left(Error.UnsupportedPair("invalid pair")), "/rates?from=USD&to=USD")
 
     assert(response._1 == Status.BadRequest)
+    assert(response._2.hcursor.get[String]("code") == Right("UNSUPPORTED_PAIR"))
     assert(response._2.hcursor.get[String]("message") == Right("invalid pair"))
   }
 
-  test("returns service unavailable when no fresh rate exists") {
-    val response = run(Left(Error.RateUnavailable("missing rate")), "/rates?from=USD&to=JPY")
+  test("returns service unavailable without exposing internal details when no fresh rate exists") {
+    val response = run(Left(Error.RateUnavailable("No fresh rate is available for Pair(USD,JPY)")), "/rates?from=USD&to=JPY")
 
     assert(response._1 == Status.ServiceUnavailable)
-    assert(response._2.hcursor.get[String]("message") == Right("missing rate"))
+    assert(response._2.hcursor.get[String]("code") == Right("RATE_UNAVAILABLE"))
+    assert(response._2.hcursor.get[String]("message") == Right("No fresh rate is currently available"))
   }
 
-  test("returns bad gateway when lookup fails") {
-    val response = run(Left(Error.RateLookupFailed("provider failure")), "/rates?from=USD&to=JPY")
+  test("returns bad gateway without exposing internal details when lookup fails") {
+    val response = run(Left(Error.RateLookupFailed("connection refused: localhost:8080")), "/rates?from=USD&to=JPY")
 
     assert(response._1 == Status.BadGateway)
-    assert(response._2.hcursor.get[String]("message") == Right("provider failure"))
+    assert(response._2.hcursor.get[String]("code") == Right("RATE_PROVIDER_UNAVAILABLE"))
+    assert(response._2.hcursor.get[String]("message") == Right("The rates provider is currently unavailable"))
   }
 
   private def run(result: Either[Error, Rate], path: String): (Status, io.circe.Json) = {

@@ -7,7 +7,7 @@ import cats.syntax.flatMap._
 import forex.programs.RatesProgram
 import forex.programs.rates.{ Protocol => RatesProgramProtocol }
 import forex.programs.rates.errors.Error
-import org.http4s.HttpRoutes
+import org.http4s.{ HttpRoutes, Query }
 import org.http4s.dsl.Http4sDsl
 import org.http4s.server.Router
 
@@ -19,22 +19,31 @@ class RatesHttpRoutes[F[_]: Sync](rates: RatesProgram[F]) extends Http4sDsl[F] {
 
   private val httpRoutes: HttpRoutes[F] = HttpRoutes.of[F] {
     case request @ GET -> Root =>
-      val query = request.uri.query.params
+      val query = request.uri.query
       val parsed = (
-        query.get("from").toRight("Missing query parameter: from").flatMap(decode),
-        query.get("to").toRight("Missing query parameter: to").flatMap(decode)
+        parseCurrency(query, "from"),
+        parseCurrency(query, "to")
       ).mapN(RatesProgramProtocol.GetRatesRequest.apply)
 
       parsed.fold(
-        message => BadRequest(ErrorApiResponse(message)),
+        message => BadRequest(ErrorApiResponse("INVALID_REQUEST", message)),
         rates.get(_).flatMap {
-        case Right(rate)                          => Ok(rate.asGetApiResponse)
-        case Left(Error.UnsupportedPair(message)) => BadRequest(ErrorApiResponse(message))
-        case Left(Error.RateUnavailable(message))  => ServiceUnavailable(ErrorApiResponse(message))
-        case Left(Error.RateLookupFailed(message)) => BadGateway(ErrorApiResponse(message))
+        case Right(rate)                         => Ok(rate.asGetApiResponse)
+        case Left(Error.UnsupportedPair(message)) => BadRequest(ErrorApiResponse("UNSUPPORTED_PAIR", message))
+        case Left(Error.RateUnavailable(_)) =>
+          ServiceUnavailable(ErrorApiResponse("RATE_UNAVAILABLE", "No fresh rate is currently available"))
+        case Left(Error.RateLookupFailed(_)) =>
+          BadGateway(ErrorApiResponse("RATE_PROVIDER_UNAVAILABLE", "The rates provider is currently unavailable"))
         }
       )
   }
+
+  private def parseCurrency(query: Query, parameter: String): Either[String, forex.domain.Currency] =
+    query.multiParams.get(parameter).toList.flatten match {
+      case Nil         => Left(s"Missing query parameter: $parameter")
+      case value :: Nil => decode(value)
+      case _           => Left(s"Query parameter must be provided once: $parameter")
+    }
 
   val routes: HttpRoutes[F] = Router(
     prefixPath -> httpRoutes

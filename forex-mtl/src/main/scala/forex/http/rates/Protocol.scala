@@ -25,6 +25,7 @@ object Protocol {
   )
 
   final case class ErrorApiResponse(
+      code: String,
       message: String
   )
 
