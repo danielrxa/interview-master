@@ -4,7 +4,8 @@ import scala.concurrent.duration.FiniteDuration
 
 case class ApplicationConfig(
     http: HttpConfig,
-    oneFrame: OneFrameConfig
+    oneFrame: OneFrameConfig,
+    redis: RedisConfig
 )
 
 case class HttpConfig(
@@ -18,4 +19,9 @@ case class OneFrameConfig(
     token: String,
     refreshInterval: FiniteDuration,
     maxRateAge: FiniteDuration
+)
+
+case class RedisConfig(
+    uri: String,
+    keyPrefix: String
 )

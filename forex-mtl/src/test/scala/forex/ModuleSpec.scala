@@ -3,7 +3,7 @@ package forex
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import cats.effect.{ ContextShift, IO, Timer }
-import forex.config.{ ApplicationConfig, HttpConfig, OneFrameConfig }
+import forex.config.{ ApplicationConfig, HttpConfig, OneFrameConfig, RedisConfig }
 import forex.domain.{ Currency, Price, Rate, Timestamp }
 import forex.services.rates.{ Algebra, errors }
 import org.http4s.{ Request, Status, Uri }
@@ -29,6 +29,7 @@ final class ModuleSpec extends AnyFunSuite {
 
   private val config = ApplicationConfig(
     http = HttpConfig("0.0.0.0", 8080, 1.second),
-    oneFrame = OneFrameConfig("http://localhost:8080", "token", 4.minutes, 5.minutes)
+    oneFrame = OneFrameConfig("http://localhost:8080", "token", 4.minutes, 5.minutes),
+    redis = RedisConfig("redis://localhost:6379", "forex:rates")
   )
 }
