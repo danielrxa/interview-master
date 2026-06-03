@@ -1,50 +1,160 @@
-<img src="/paidy.png?raw=true" width=300 style="background-color:white;">
+# Forex Proxy
 
-# Paidy Take-Home Coding Exercises
+Local HTTP proxy for currency exchange rates backed by the One-Frame service.
 
-## What to expect?
-We understand that your time is valuable, and in anyone's busy schedule solving these exercises may constitute a fairly substantial chunk of time, so we really appreciate any effort you put in to helping us build a solid team.
+## Design
 
-## What we are looking for?
-**Keep it simple**. Read the requirements and restrictions carefully and focus on solving the problem.
+The proxy keeps rates in an in-memory cache instead of calling One-Frame for
+every incoming request.
 
-**Treat it like production code**. That is, develop your software in the same way that you would for any code that is intended to be deployed to production. These may be toy exercises, but we really would like to get an idea of how you build code on a day-to-day basis.
+At startup, and then every four minutes, it requests all supported directed
+currency pairs in one One-Frame call:
 
-## How to submit?
-Please upload your solution to a version control system hosting service, preferably [Github](https://www.github.com) or [Gitlab](https://www.gitlab.com), that allows code viewing and checkout without requiring an account. Afterward, email us a link to the branch that contains your solution. Make sure your submission includes a small **README**, documenting any assumptions, simplifications and/or choices you made, as well as a short description of how to run the code and/or tests. Finally, to help us review your code, please split your commit history in sensible chunks (at least separate the initial provided code from your personal additions).
+```text
+GET http://localhost:8080/rates?pair=AUDCAD&pair=AUDCHF&...
+token: 10dc303535874aeccc86a8251e6992f5
+```
 
-## The Interview:
-After you submit your code, we will contact you to discuss and potentially arrange an in-person interview with some of the team.
-The interview will cover a wide range of technical and social aspects relevant to working at Paidy, but importantly for this exercise: we will also take the opportunity to step through your submitted code with you.
+The cache uses `Ref[F, Map[Rate.Pair, Rate]]`, so updates are atomic and reads
+are safe while a refresh is running. Failed refresh attempts preserve the
+previous cache contents. Rates older than five minutes are never returned.
 
-## The Exercises:
-### 1. [Platform] Build an API for managing users
-The complete specification for this exercise can be found in the [UsersAPI.md](UsersAPI.md).
+There are nine supported currencies and 72 directed pairs. A refresh every four
+minutes results in approximately 360 One-Frame calls per day, below the
+provider's limit of 1,000 calls per token per day.
 
-### 2. [Frontend] Build a SPA that displays currency exchange rates
-The complete specification for this exercise can be found in the [Forex-UI.md](Forex-UI.md).
+## Requirements
 
-### 3. [Platform] Build a local proxy for currency exchange rates
-The complete specification for this exercise can be found in the [Forex.md](Forex.md).
+- JDK 17
+- sbt
+- Docker
 
-### 4. [Platform] Build an API for managing a restaurant
-The complete specification for this exercise can be found at [SimpleRestaurantApi.md](SimpleRestaurantApi.md)
+## Run Locally
 
-### 5. [Technical Product Manager] Choose an address validation provider and write the project requirements
-The complete specification for this exercise can be found at [AddressValidation.md](./AddressValidation.md)
+Start One-Frame on port `8080`:
 
-## F.A.Q.
-1) _Should I work on all exercises ?_
-*NO*, the hiring manager will ask you to work on a single exercise and will link you directly to that exercise's readme file. If you are unsure about which exercise to work on, then please contact Paidy's talent acquisition team.
+```bash
+docker pull paidyinc/one-frame
+docker run --rm -p 8080:8080 paidyinc/one-frame
+```
 
-2) _Is it OK to share your solutions publicly?_
-Yes, the questions are not prescriptive, the process and discussion around the code is the valuable part. You do the work, you own the code. Given we are asking you to give up your time, it is entirely reasonable for you to keep and use your solution as you see fit.
+In another terminal, start the proxy on port `8081`:
 
-3) _Should I do X?_
-For any value of X, it is up to you, we intentionally leave the problem a little open-ended and will leave it up to you to provide us with what you see as important. Just remember to keep it simple. If it's a feature that is going to take you a couple of days, it's not essential.
+```bash
+cd forex-mtl
+sbt run
+```
 
-4) _Something is ambiguous, and I don't know what to do?_
-The first thing is: don't get stuck. We really don't want to trip you up intentionally, we are just attempting to see how you approach problems. That said, there are intentional ambiguities in the specifications, mainly to see how you fill in those gaps, and how you make design choices.
-If you really feel stuck, our first preference is for you to make a decision and document it with your submission - in this case there is really no wrong answer. If you feel it is not possible to do this, just send us an email and we will try to clarify or correct the question for you.
+Request a cached rate:
 
-Good luck!
+```bash
+curl 'http://localhost:8081/rates?from=USD&to=JPY'
+```
+
+Example response:
+
+```json
+{
+  "from": "USD",
+  "to": "JPY",
+  "price": 0.8605628566092338,
+  "timestamp": "2026-06-02T02:09:29.799Z"
+}
+```
+
+## API Errors
+
+Errors have a stable `code` and a public `message`.
+
+| Status | Code | Situation |
+| --- | --- | --- |
+| `400` | `INVALID_REQUEST` | Missing, invalid, or repeated query parameter |
+| `400` | `UNSUPPORTED_PAIR` | A pair contains the same currency twice |
+| `503` | `RATE_UNAVAILABLE` | No fresh cached rate is available |
+| `502` | `RATE_PROVIDER_UNAVAILABLE` | The external rates provider is unavailable |
+
+Example:
+
+```bash
+curl 'http://localhost:8081/rates?from=XXX&to=JPY'
+```
+
+```json
+{
+  "code": "INVALID_REQUEST",
+  "message": "Unsupported currency: XXX"
+}
+```
+
+## Tests
+
+The tests do not require Docker or network access. The One-Frame HTTP client is
+tested with an in-memory http4s application.
+
+```bash
+sbt test
+```
+
+The test suite covers:
+
+- supported currencies and directed pair generation;
+- One-Frame URL construction, token header, decoding, and failures;
+- One-Frame timestamp formats with and without an explicit UTC offset;
+- cache freshness, expiration, missing rates, and atomic replacement;
+- initial and periodic refresh execution without overlapping updates;
+- refresh failure handling;
+- program error mapping;
+- HTTP success responses and descriptive API errors;
+- application configuration and route wiring.
+
+## Coverage
+
+Code coverage is measured with `sbt-scoverage`.
+
+Generate the report:
+
+```bash
+cd forex-mtl
+sbt clean coverage test coverageReport
+```
+
+Latest local report:
+
+```text
+Statement coverage: 75.84%
+Branch coverage:    64.86%
+Statements:         248 / 327
+Tests:              42 passing
+```
+
+Coverage graph:
+
+```text
+Statement  [███████████████░░░░░] 75.84%
+Branch     [█████████████░░░░░░░] 64.86%
+```
+
+Generated report files:
+
+```text
+forex-mtl/target/scala-2.13/scoverage-report/index.html
+forex-mtl/target/scala-2.13/scoverage-report/scoverage.xml
+forex-mtl/target/scala-2.13/coverage-report/cobertura.xml
+```
+
+The score includes application wiring in `Main.scala`, which is intentionally
+not covered by unit tests because it starts real resources and the HTTP server.
+Most core behavior is covered through unit tests around the One-Frame client,
+decoders, cache, periodic refresh process, program layer, and HTTP routes.
+
+## Assumptions And Limitations
+
+- One-Frame timestamps without an explicit offset are interpreted as UTC.
+- The cache is local to one process and is cleared when the process restarts.
+- Each application replica has its own cache and consumes its own refresh calls.
+  A shared cache or leader election should be considered before running
+  multiple replicas.
+- Refresh failures currently preserve cached data but are not logged. Production
+  deployment should add structured logging and metrics.
+- The HTTP server starts concurrently with the initial refresh. Requests made
+  before that refresh completes receive `RATE_UNAVAILABLE`.
