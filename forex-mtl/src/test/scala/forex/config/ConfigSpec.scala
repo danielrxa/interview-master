@@ -14,5 +14,7 @@ final class ConfigSpec extends AnyFunSuite {
     assert(config.oneFrame.token == "10dc303535874aeccc86a8251e6992f5")
     assert(config.oneFrame.refreshInterval.toMinutes == 4L)
     assert(config.oneFrame.maxRateAge.toMinutes == 5L)
+    assert(config.redis.uri == "redis://localhost:6379")
+    assert(config.redis.keyPrefix == "forex:rates")
   }
 }
