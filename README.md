@@ -100,6 +100,50 @@ curl 'http://localhost:8081/rates?from=XXX&to=JPY'
 }
 ```
 
+## Observability
+
+The application includes optional OpenTelemetry tracing. It is disabled by
+default, so local development works without an OpenTelemetry collector.
+
+Enable tracing by setting:
+
+```bash
+OTEL_ENABLED=true \
+OTEL_SERVICE_NAME=forex-mtl \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+sbt run
+```
+
+When enabled, spans are exported through OTLP/gRPC. The application instruments:
+
+- incoming HTTP requests;
+- One-Frame HTTP calls;
+- Redis cache lookups;
+- periodic Redis cache refreshes.
+
+Relevant span names:
+
+```text
+http GET /rates
+oneframe.rates.get
+rates.cache.get
+rates.cache.refresh
+```
+
+Useful attributes include:
+
+```text
+http.method
+http.route
+http.status_code
+forex.from
+forex.to
+forex.pair.count
+cache.result
+refresh.result
+oneframe.result
+```
+
 ## Tests
 
 The tests do not require Docker or network access. The One-Frame HTTP client is
@@ -176,7 +220,7 @@ decoders, cache, periodic refresh process, program layer, and HTTP routes.
 - Multiple Scala replicas can share the same Redis cache, but each replica still
   runs its own refresh process. Use leader election or a dedicated refresh
   worker before deploying multiple replicas.
-- Refresh failures currently preserve cached data but are not logged. Production
-  deployment should add structured logging and metrics.
+- Refresh failures preserve cached data and are logged. OpenTelemetry traces can
+  also report refresh failures when tracing is enabled.
 - The HTTP server starts concurrently with the initial refresh. Requests made
   before that refresh completes receive `RATE_UNAVAILABLE`.

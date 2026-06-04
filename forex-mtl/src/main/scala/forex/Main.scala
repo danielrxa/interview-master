@@ -8,6 +8,7 @@ import dev.profunktor.redis4cats.domain.RedisCodec
 import dev.profunktor.redis4cats.effect.Log
 import dev.profunktor.redis4cats.interpreter.Redis
 import forex.config._
+import forex.observability.{ OpenTelemetryResource, Tracing }
 import forex.services.rates.cache.RedisStringCache
 import forex.services.rates.RatesRefresher
 import forex.services.rates.interpreters.{ OneFrameLive, RedisRatesCache }
@@ -33,19 +34,22 @@ class Application[F[_]: ConcurrentEffect: ContextShift: Timer] {
   def stream(ec: ExecutionContext): Stream[F, Unit] =
     for {
       config <- Config.stream("app")
+      openTelemetry <- Stream.resource(OpenTelemetryResource.create[F](config.observability))
+      tracing = Tracing.fromOpenTelemetry[F](openTelemetry, config.observability.serviceName)
       _ <- Stream.resource(BlazeClientBuilder[F](ec).resource).flatMap { client =>
             Stream.resource(redis(config.redis.uri)).flatMap { redis =>
               Stream.eval(parseUri(config.oneFrame.baseUri)).flatMap { baseUri =>
-                val oneFrame = new OneFrameLive[F](client, baseUri, config.oneFrame.token)
+                val oneFrame = new OneFrameLive[F](client, baseUri, config.oneFrame.token, tracing)
                 val cache = new RedisStringCache[F](redis)
                 val ratesService = new RedisRatesCache[F](
                   oneFrame,
                   cache,
                   config.redis.keyPrefix,
                   config.oneFrame.maxRateAge,
-                  Sync[F].delay(java.time.OffsetDateTime.now)
+                  Sync[F].delay(java.time.OffsetDateTime.now),
+                  tracing
                 )
-                val module = new Module[F](config, ratesService)
+                val module = new Module[F](config, ratesService, tracing)
                 val refresh =
                   new RatesRefresher[F](ratesService.refresh, config.oneFrame.refreshInterval).stream
 

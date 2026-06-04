@@ -16,5 +16,8 @@ final class ConfigSpec extends AnyFunSuite {
     assert(config.oneFrame.maxRateAge.toMinutes == 5L)
     assert(config.redis.uri == "redis://localhost:6379")
     assert(config.redis.keyPrefix == "forex:rates")
+    assert(!config.observability.enabled)
+    assert(config.observability.serviceName == "forex-mtl")
+    assert(config.observability.otlpEndpoint == "http://localhost:4317")
   }
 }

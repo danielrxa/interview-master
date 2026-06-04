@@ -10,6 +10,7 @@ object Dependencies {
     val circe      = "0.14.2"
     val pureConfig = "0.17.4"
     val redis4cats = "0.9.1"
+    val otel       = "1.32.0"
 
     val kindProjector  = "0.13.2"
     val logback        = "1.2.3"
@@ -36,6 +37,9 @@ object Dependencies {
     lazy val circeParser     = circe("circe-parser")
     lazy val pureConfig      = "com.github.pureconfig" %% "pureconfig" % Versions.pureConfig
     lazy val redis4cats      = "dev.profunktor" %% "redis4cats-effects" % Versions.redis4cats
+    lazy val otelApi         = "io.opentelemetry" % "opentelemetry-api" % Versions.otel
+    lazy val otelSdk         = "io.opentelemetry" % "opentelemetry-sdk" % Versions.otel
+    lazy val otelExporter    = "io.opentelemetry" % "opentelemetry-exporter-otlp" % Versions.otel
 
     // Compiler plugins
     lazy val kindProjector = "org.typelevel" %% "kind-projector" % Versions.kindProjector cross CrossVersion.full
