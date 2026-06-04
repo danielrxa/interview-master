@@ -30,6 +30,6 @@ final class ModuleSpec extends AnyFunSuite {
   private val config = ApplicationConfig(
     http = HttpConfig("0.0.0.0", 8080, 1.second),
     oneFrame = OneFrameConfig("http://localhost:8080", "token", 4.minutes, 5.minutes),
-    redis = RedisConfig("redis://localhost:6379", "forex:rates")
+    redis = RedisConfig("redis://localhost:6379", "forex:rates", 30.seconds)
   )
 }

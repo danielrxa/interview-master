@@ -23,5 +23,6 @@ case class OneFrameConfig(
 
 case class RedisConfig(
     uri: String,
-    keyPrefix: String
+    keyPrefix: String,
+    refreshLockTtl: FiniteDuration
 )

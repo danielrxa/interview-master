@@ -20,6 +20,18 @@ Each Redis key uses the configured `max-rate-age` as TTL. Failed refresh
 attempts preserve the previous cache contents. Rates older than five minutes
 are never returned, even if a cached value is still present.
 
+When the proxy runs with multiple replicas, every replica can receive HTTP
+requests, but only one replica should refresh rates during each refresh cycle.
+The refresh process is coordinated through a Redis lock:
+
+```text
+forex:rates:refresh-lock
+```
+
+The lock is acquired with `SET NX EX`, so only one replica calls One-Frame while
+the lock exists. Other replicas skip that refresh cycle and continue serving
+rates from Redis.
+
 There are nine supported currencies and 72 directed pairs. A refresh every four
 minutes results in approximately 360 One-Frame calls per day, below the
 provider's limit of 1,000 calls per token per day.
@@ -58,6 +70,81 @@ Request a cached rate:
 ```bash
 curl 'http://localhost:8081/rates?from=USD&to=JPY'
 ```
+
+## Run With Docker Compose
+
+The repository includes a Compose stack that starts all required services:
+
+- Redis on `localhost:6379`;
+- One-Frame on `localhost:8080`;
+- Forex proxy on `localhost:8081`.
+
+Build and start the full stack:
+
+```bash
+docker compose up --build
+```
+
+Call the proxy:
+
+```bash
+curl 'http://localhost:8081/rates?from=USD&to=JPY'
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Remove the Redis volume too:
+
+```bash
+docker compose down -v
+```
+
+The application image is built from `forex-mtl/Dockerfile`. The Docker build
+uses `sbt stage` to create a production-style executable distribution and then
+copies only the staged application into a JRE runtime image.
+
+Inside Docker Compose the service discovery values are injected through
+environment variables:
+
+```text
+ONE_FRAME_BASE_URI=http://one-frame:8080
+REDIS_URI=redis://redis:6379
+REDIS_REFRESH_LOCK_TTL=30 seconds
+```
+
+The same `application.conf` still works locally because those variables are
+optional overrides.
+
+## Deployment Simulation
+
+Deployment artifacts live under `deploy/`:
+
+```text
+deploy/pipeline.yml
+deploy/kubernetes/namespace.yaml
+deploy/kubernetes/configmap.yaml
+deploy/kubernetes/redis.yaml
+deploy/kubernetes/one-frame.yaml
+deploy/kubernetes/forex-mtl.yaml
+```
+
+`deploy/pipeline.yml` models a CI/CD flow:
+
+1. run tests and coverage;
+2. build the Docker image;
+3. push the image to a container registry;
+4. apply Kubernetes manifests;
+5. update the `forex-mtl` deployment image;
+6. wait for rollout completion.
+
+The Kubernetes manifests are intentionally minimal. They are useful for
+interview discussion and local cluster experiments, but a production deployment
+should add probes, resource requests and limits, Redis persistence via PVC,
+network policies, metrics, and a safer secret management mechanism.
 
 The proxy stores rates in Redis with keys like:
 
@@ -173,10 +260,12 @@ decoders, cache, periodic refresh process, program layer, and HTTP routes.
 - The example Redis command uses `--rm` and no volume, so Redis data is lost
   when the Redis container itself stops. Use Redis persistence or a Docker
   volume if container restarts should keep data.
-- Multiple Scala replicas can share the same Redis cache, but each replica still
-  runs its own refresh process. Use leader election or a dedicated refresh
-  worker before deploying multiple replicas.
-- Refresh failures currently preserve cached data but are not logged. Production
-  deployment should add structured logging and metrics.
+- Multiple Scala replicas can share the same Redis cache. Refreshes are guarded
+  by a Redis `SET NX EX` lock so replicas do not all call One-Frame at the same
+  time.
+- The Redis refresh lock is TTL-based. If a refresh takes longer than
+  `REDIS_REFRESH_LOCK_TTL`, another replica may start a new refresh. In
+  production, tune the TTL above the expected refresh duration or move refresh
+  work to a dedicated worker.
 - The HTTP server starts concurrently with the initial refresh. Requests made
   before that refresh completes receive `RATE_UNAVAILABLE`.

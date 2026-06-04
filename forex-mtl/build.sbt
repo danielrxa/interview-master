@@ -1,9 +1,12 @@
 import Dependencies._
 
+enablePlugins(JavaAppPackaging)
+
 name := "forex"
 version := "1.0.1"
 
 scalaVersion := "2.13.12"
+Compile / mainClass := Some("forex.Main")
 scalacOptions ++= Seq(
   "-deprecation", // Emit warning and location for usages of deprecated APIs.
   "-encoding",

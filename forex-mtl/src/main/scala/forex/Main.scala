@@ -43,6 +43,7 @@ class Application[F[_]: ConcurrentEffect: ContextShift: Timer] {
                   cache,
                   config.redis.keyPrefix,
                   config.oneFrame.maxRateAge,
+                  config.redis.refreshLockTtl,
                   Sync[F].delay(java.time.OffsetDateTime.now)
                 )
                 val module = new Module[F](config, ratesService)

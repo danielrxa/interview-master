@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: one-frame
+  namespace: forex
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: one-frame
+  template:
+    metadata:
+      labels:
+        app: one-frame
+    spec:
+      containers:
+        - name: one-frame
+          image: paidyinc/one-frame
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: one-frame
+  namespace: forex
+spec:
+  selector:
+    app: one-frame
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

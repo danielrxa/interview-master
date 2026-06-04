@@ -15,8 +15,10 @@ final class RedisRatesCacheSpec extends AnyFunSuite {
   private val pair      = Rate.Pair(Currency.USD, Currency.JPY)
   private val now       = OffsetDateTime.parse("2026-06-03T12:00:00Z")
   private val maxAge    = 5.minutes
+  private val lockTtl   = 30.seconds
   private val keyPrefix = "forex:test"
   private val key       = "forex:test:USDJPY"
+  private val lockKey   = "forex:test:refresh-lock"
 
   test("returns a fresh Redis cached rate") {
     val rate = createRate(now.minusMinutes(1))
@@ -62,6 +64,7 @@ final class RedisRatesCacheSpec extends AnyFunSuite {
     val (refreshed, stored) = result.unsafeRunSync()
 
     assert(refreshed == Right(()))
+    assert(stored.get(lockKey).map(_.expiresIn).contains(lockTtl))
     assert(stored.get(key).map(_.expiresIn).contains(maxAge))
     assert(stored.get(key).map(_.value).exists(_.contains("USD")))
     assert(stored.get(key).map(_.value).exists(_.contains("JPY")))
@@ -79,12 +82,38 @@ final class RedisRatesCacheSpec extends AnyFunSuite {
 
     assert(result.unsafeRunSync() == (
       Left(failure),
-      Map(key -> StoredValue(payload(oldRate), maxAge))
+      Map(
+        key     -> StoredValue(payload(oldRate), maxAge),
+        lockKey -> StoredValue("locked", lockTtl)
+      )
     ))
   }
 
+  test("refresh skips provider lookup when another replica holds the refresh lock") {
+    val result = for {
+      cache <- FakeStringCache.create(Map(lockKey -> StoredValue("locked", lockTtl)))
+      calls <- Ref.of[IO, Int](0)
+      rates = redisRates(
+        cache,
+        new OneFrame[IO] {
+          override def get(_pairs: List[Rate.Pair]): IO[Either[Error, List[Rate]]] =
+            calls.update(_ + 1).as(Right(List(createRate(now))))
+        }
+      )
+      refreshed <- rates.refresh
+      stored    <- cache.snapshot
+      count     <- calls.get
+    } yield (refreshed, stored, count)
+
+    val (refreshed, stored, count) = result.unsafeRunSync()
+
+    assert(refreshed == Right(()))
+    assert(stored == Map(lockKey -> StoredValue("locked", lockTtl)))
+    assert(count == 0)
+  }
+
   private def redisRates(cache: FakeStringCache, oneFrame: OneFrame[IO]): RedisRatesCache[IO] =
-    new RedisRatesCache[IO](oneFrame, cache, keyPrefix, maxAge, IO.pure(now))
+    new RedisRatesCache[IO](oneFrame, cache, keyPrefix, maxAge, lockTtl, IO.pure(now))
 
   private def provider(result: Either[Error, List[Rate]]): OneFrame[IO] =
     new OneFrame[IO] {
@@ -110,6 +139,12 @@ final class FakeStringCache private (
 
   override def setEx(key: String, value: String, expiresIn: FiniteDuration): IO[Unit] =
     values.update(_.updated(key, StoredValue(value, expiresIn)))
+
+  override def trySetEx(key: String, value: String, expiresIn: FiniteDuration): IO[Boolean] =
+    values.modify { current =>
+      if (current.contains(key)) (current, false)
+      else (current.updated(key, StoredValue(value, expiresIn)), true)
+    }
 
   def snapshot: IO[Map[String, StoredValue]] =
     values.get
