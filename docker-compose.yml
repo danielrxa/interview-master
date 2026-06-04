@@ -32,6 +32,7 @@ services:
       ONE_FRAME_MAX_RATE_AGE: "5 minutes"
       REDIS_URI: "redis://redis:6379"
       REDIS_KEY_PREFIX: "forex:rates"
+      REDIS_REFRESH_LOCK_TTL: "30 seconds"
     ports:
       - "8081:8081"
 

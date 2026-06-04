@@ -24,6 +24,7 @@ final class RedisRatesCache[F[_]: Sync](
     cache: StringCache[F],
     keyPrefix: String,
     maxRateAge: FiniteDuration,
+    refreshLockTtl: FiniteDuration,
     now: F[OffsetDateTime]
 ) extends Algebra[F] {
 
@@ -55,21 +56,31 @@ final class RedisRatesCache[F[_]: Sync](
       }
 
   def refresh: F[Either[Error, Unit]] =
-    Sync[F].delay(logger.info("Refreshing Redis rates cache for {} currency pairs", Currency.pairs.size)) *>
-    oneFrame.get(Currency.pairs).flatMap {
-      case Left(error) =>
+    cache.trySetEx(refreshLockKey, "locked", refreshLockTtl).flatMap {
+      case false =>
         Sync[F]
-          .delay(logger.warn("Redis rates cache refresh failed: {}", describe(error)))
-          .as(error.asLeft[Unit])
-      case Right(rates) =>
-        rates
-          .traverse(rate => cache.setEx(key(rate.pair), StoredRate.fromRate(rate).asJson.noSpaces, maxRateAge))
-          .flatTap(_ => Sync[F].delay(logger.info("Redis rates cache refreshed with {} rates", rates.size)))
+          .delay(logger.info("Skipping Redis rates cache refresh because another replica holds the refresh lock"))
           .as(().asRight[Error])
+      case true =>
+        Sync[F].delay(logger.info("Refreshing Redis rates cache for {} currency pairs", Currency.pairs.size)) *>
+        oneFrame.get(Currency.pairs).flatMap {
+          case Left(error) =>
+            Sync[F]
+              .delay(logger.warn("Redis rates cache refresh failed: {}", describe(error)))
+              .as(error.asLeft[Unit])
+          case Right(rates) =>
+            rates
+              .traverse(rate => cache.setEx(key(rate.pair), StoredRate.fromRate(rate).asJson.noSpaces, maxRateAge))
+              .flatTap(_ => Sync[F].delay(logger.info("Redis rates cache refreshed with {} rates", rates.size)))
+              .as(().asRight[Error])
+        }
     }
 
   private def key(pair: Rate.Pair): String =
     s"$keyPrefix:${Currency.show.show(pair.from)}${Currency.show.show(pair.to)}"
+
+  private def refreshLockKey: String =
+    s"$keyPrefix:refresh-lock"
 
   private def logGet(pair: Rate.Pair, result: Either[Error, Rate]): Unit =
     result match {
