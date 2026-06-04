@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forex-mtl-config
+  namespace: forex
+data:
+  HTTP_HOST: "0.0.0.0"
+  HTTP_PORT: "8081"
+  ONE_FRAME_BASE_URI: "http://one-frame:8080"
+  ONE_FRAME_REFRESH_INTERVAL: "4 minutes"
+  ONE_FRAME_MAX_RATE_AGE: "5 minutes"
+  REDIS_URI: "redis://redis:6379"
+  REDIS_KEY_PREFIX: "forex:rates"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: one-frame-token
+  namespace: forex
+type: Opaque
+stringData:
+  ONE_FRAME_TOKEN: "10dc303535874aeccc86a8251e6992f5"
